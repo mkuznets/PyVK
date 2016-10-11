@@ -81,6 +81,9 @@ class GlobalConfig(Config):
 class AuthConfig(GlobalConfig):
     scope = p_basic         # type: int
     disable_cache = False   # type: bool
+    token = None            # type: str
+    username = None
+
 
 
 class RequestConfig(GlobalConfig):

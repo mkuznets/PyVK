@@ -13,36 +13,44 @@ from __future__ import generators, with_statement, print_function, \
 
 import logging
 
-from .config import RequestConfig
+from .config import RequestConfig, AuthConfig, GlobalConfig
 from .auth import Auth
-from .request import PartialRequest
+from .request import RequestHandler
+from injector import Module, Key, provides, Injector, inject, singleton, AssistedBuilder
 
 logger = logging.getLogger(__name__)
 
 
 class API(object):
     def __init__(self, api_id, **kwargs):
-        self.config = RequestConfig(**kwargs)
+        self._config = GlobalConfig(**kwargs)
 
-        log_file = {'filename': self.config.log_file} \
-            if self.config.log_file else {}
+        log_file = {'filename': self._config.log_file} \
+            if self._config.log_file else {}
 
-        logging.basicConfig(format=self.config.log_format,
-                            level=self.config.log_level,
+        logging.basicConfig(format=self._config.log_format,
+                            level=self._config.log_level,
                             **log_file)
 
-        self.auth = Auth(api_id, **kwargs)
+        self._auth = Auth(self.api_id, AuthConfig(**kwargs))
 
-        if not self.auth.token:
-            self.auth.auth()
-
-    def __getattr__(self, api_method_prefix):
-        return PartialRequest([api_method_prefix],
-                              {'config': self.config, 'auth': self.auth})
+        self.inject = Injector([APIModule(api_id, )])
 
     def request(self, **kwargs):
-        return PartialRequest([], {'config': RequestConfig(**kwargs),
-                                   'auth': self.auth})
+        builder = self.inject.get(AssistedBuilder(RequestHandler))
+        return builder.build(prefix=[], config=RequestConfig(**kwargs))
 
     def __repr__(self):
-        return '<VK API | id=%d>' % self.auth.api_id
+        auth = self.inject.get(Auth)
+        return '<VK API | id=%d>' % auth.api_id
+
+
+class APIModule(Module):
+    def __init__(self, api_id, config):
+        self.api_id = api_id
+        self.config = config
+
+    @singleton
+    @provides(Auth)
+    def get_auth(self):
+        return

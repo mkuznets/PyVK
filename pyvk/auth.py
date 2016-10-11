@@ -26,6 +26,7 @@ from requests.exceptions import RequestException
 from .config import AuthConfig
 from .exceptions import AuthError, PyVKError
 from .utils import Prompt
+from injector import Module, Key, provides, Injector, inject, singleton
 
 
 if PY2:
@@ -41,42 +42,38 @@ logging.getLogger('requests').setLevel(logging.WARNING)
 
 class Auth(object):
 
-    def __init__(self, api_id, **kwargs):
-        self.config = AuthConfig(**kwargs)
-
-        # ---------------------------------------------------------------------
+    def __init__(self, api_id, config):
+        self.config = config
+        self.api_id = api_id
 
         self.http = requests.Session()
-
-        self.api_id = api_id
         self.username = None
         self.token = None
         self.scope = self.config.scope
 
         # ---------------------------------------------------------------------
 
-        if 'token' in kwargs:
+        if config.token:
             logger.debug('Testing the token provided...')
             try:
-                self.scope = self.test_token(kwargs['token'])
+                self.scope = self.test_token(config.token)
 
             except PyVKError as e:
                 raise AuthError('Invalid token', **e.attrs)
 
             else:
                 logger.debug('Token is valid.')
-                self.token = kwargs['token']
+                self.token = config.token
                 return
 
         # ---------------------------------------------------------------------
 
-        self.prompt = kwargs.get('prompt', Prompt)
         self._state = None
 
-        self.username = kwargs.get('username', None)
+        self.username = config.username
         if not self.username:
             logger.debug('Username is not provided. Awaiting input...')
-            self.username = self.prompt.ask_username()
+            self.username = self.config.prompt.ask_username()
 
         if not self.config.disable_cache:
             logger.debug('Reading authorisation cache')
@@ -195,7 +192,7 @@ class Auth(object):
         # Collect post data from the form and fill user-defined fields
         post_data = fields
         post_data['email'] = self.username
-        post_data['pass'] = self.prompt.ask_password()
+        post_data['pass'] = self.config.prompt.ask_password()
 
         try:
             r = self.http.post(action_url, data=post_data,
@@ -244,7 +241,7 @@ class Auth(object):
                             **exc_data)
 
         fields['remember'] = 0
-        fields['code'] = self.prompt.ask_secret_code()
+        fields['code'] = self.config.prompt.ask_secret_code()
 
         try:
             r = self.http.post(action_url, data=fields,
@@ -309,8 +306,6 @@ class Auth(object):
                              token_time=int(time.time()),
                              cookies=self.http.cookies.get_dict())
         return ('exit', )
-
-    # --------------------------------------------------------------------------
 
 
 class Cache(object):

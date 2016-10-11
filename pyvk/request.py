@@ -15,8 +15,12 @@ import requests
 import logging
 from requests.exceptions import RequestException
 from time import sleep
+from injector import Module, Key, provides, Injector, inject, singleton, AssistedBuilder
 
 from .utils import PY2
+from .auth import Auth
+from .auth import Auth
+from .config import RequestConfig, AuthConfig
 from .exceptions import ReqError, APIError, AuthError
 
 if PY2:
@@ -28,35 +32,14 @@ logger = logging.getLogger(__name__)
 logging.getLogger('requests').setLevel(logging.WARNING)
 
 
-class PartialRequest(object):
-    def __init__(self, prefix, aux):
-        self._prefix = prefix
-        self._aux = aux
-
-    def __getattr__(self, suffix):
-        return PartialRequest(self._prefix + [suffix], self._aux)
-
-    def __call__(self, **args):
-        return Request(self.method_name(), args, **self._aux).send()
-
-    def __repr__(self):
-        return '<VK API PartialRequest | prefix=%s>' % repr(self.method_name())
-
-    def method_name(self):
-        return '.'.join(self._prefix)
-
-
+@inject(_auth=Auth, _config=RequestConfig)
 class Request(object):
-    def __init__(self, method, args, auth, config):
-        assert auth.token
-        self._auth = auth
-
+    def __init__(self, method, args):
         self._method = method
 
         # Transform lists into comma-separated strings
         self._args = {k: ','.join(str(i) for i in v) if type(v) is list else v
                       for k, v in args.items()}
-        self._config = config
 
     def _fetch_response(self):
 
@@ -154,3 +137,33 @@ class Request(object):
                     raise
 
         raise ReqError('Request failed after all attempts.')
+
+
+@inject(auth=Auth, request=AssistedBuilder(Request))
+class RequestHandler(object):
+
+    def __init__(self, prefix, config):
+        self._config = config
+        self._prefix = prefix or []
+
+        self.handler = Injector([])
+
+    def __getattr__(self, suffix):
+        return RequestHandler(self._prefix + [suffix])
+
+    def __call__(self, **args):
+        return self.request.build(method=self.method_name(),
+                                  args=args).send()
+
+    def __repr__(self):
+        return '<RequestHandler | prefix=%s>' % repr(self.method_name())
+
+    def method_name(self):
+        return '.'.join(self._prefix)
+
+
+class RequestHandlerBuilder(Module):
+    @provides(RequestHandler)
+    @inject(auth=Auth)
+    def get_handler(self, auth):
+        return RequestHandler()
